@@ -12,28 +12,24 @@
 
 const char* ssid     = STASSID;
 const char* password = STAPSK;
-const int ADDRESS = 0x40;
+const int SENSOR_ADDRESS = 0x40;
 double temperature, humidity;
 int raw_temp_data;
 
 void setup() {
-  Wire.begin();
-  Heltec.begin(true , true);
+  Heltec.begin(true , false);
   Heltec.display->init();
-  Heltec.display->flipScreenVertically();
-  Heltec.display->setFont(ArialMT_Plain_10);
 }
 
 void setupDisplay() {
-  Wire.begin();
-  Heltec.begin(true, false);
+  Wire.begin(SDA, SCL);
   Heltec.display->clear();
 }
 
 void loop() {
-  sensor_init(ADDRESS);
-  temperature = read_temperature(ADDRESS);
-  humidity = read_humidity(ADDRESS);
+  sensor_init(SENSOR_ADDRESS);
+  temperature = read_temperature(SENSOR_ADDRESS);
+  humidity = read_humidity(SENSOR_ADDRESS);
   Serial.println(String("sensors read" + String(temperature)));
   setupDisplay();
   Heltec.display->drawString(0, 0, String("IP-Adress: " + WiFi.localIP().toString()));
@@ -41,7 +37,7 @@ void loop() {
   Heltec.display->drawString(0, 20, String("Humidity: " + String(humidity, 1) + " %"));
   Heltec.display->display();
 
-  delay(1000);
+  delay(2000);
 }
 
 char* temperatureString(double temperature) {
@@ -107,7 +103,7 @@ double read_humidity(const int addr) {
   /**Read data of relative humidity**/
   Wire.requestFrom(addr, 2);
 
-  if (Wire .available() <= 2) {
+  if (Wire.available() <= 2) {
     high_byte = Wire.read();
     container = high_byte / 100;
     high_byte = high_byte % 100;
