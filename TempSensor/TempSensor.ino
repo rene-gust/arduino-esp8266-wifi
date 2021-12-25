@@ -1,4 +1,4 @@
-//#include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>
 #include "heltec.h"
 #include <Wire.h>
 #include "HTU21D.h" // needs forked library from https://github.com/rene-gust/HTU21D-Sensor-Library
@@ -8,8 +8,8 @@
 #define STAPSK  "PASSWORD"
 #endif
 
-//const char* ssid     = STASSID;
-//const char* password = STAPSK;
+const char* ssid     = STASSID;
+const char* password = STAPSK;
 const int SENSOR_ADDRESS = 0x40;
 const int SENSOR_SDA = 2; // SDA is wired at GPIO02
 const int SENSOR_SCL = 14; // SCL is wired at GPIO14
@@ -20,12 +20,21 @@ float humidity;
 
 void setup() {
   Serial.begin(9600);
-  Heltec.begin(true , false);
-  Heltec.display->init();
-  
+  setupWifi();
+  setupDisplay();
 }
 
 void setupDisplay() {
+  Heltec.begin(true , false);
+  Heltec.display->init();
+}
+
+void setupWifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+}
+
+void prepareDisplay() {
   Wire.begin(SDA, SCL);
   Heltec.display->clear();
 }
@@ -47,8 +56,8 @@ void loop() {
     Serial.println(humidity);
   }
 
-  setupDisplay();
-  //Heltec.display->drawString(0, 0, String("IP-Adress: " + WiFi.localIP().toString()));
+  prepareDisplay();
+  Heltec.display->drawString(0, 0, String("IP-Adress: " + WiFi.localIP().toString()));
   Heltec.display->drawString(0, 10, String("Temperature: " + String(temperature, 1) + " °C"));
   Heltec.display->drawString(0, 20, String("Humidity: " + String(humidity, 1) + " %"));
   Heltec.display->display();
