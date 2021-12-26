@@ -2,11 +2,16 @@
 #include "heltec.h"
 #include <Wire.h>
 #include "HTU21D.h" // needs forked library from https://github.com/rene-gust/HTU21D-Sensor-Library
+#include <ESP8266HTTPClient.h>
+#include <WiFiClient.h>
 
 #ifndef STASSID
 #define STASSID "SSID"
 #define STAPSK  "PASSWORD"
 #endif
+
+#define SENSOR_MON_TEMPERATURE_UNIT "°C"
+#define SENSOR_MON_HUMIDITY_UNIT "%"
 
 const char* ssid     = STASSID;
 const char* password = STAPSK;
@@ -17,6 +22,12 @@ const int SENSOR_SCL = 14; // SCL is wired at GPIO14
 HTU21D sensor;
 float temperature; 
 float humidity;
+
+HTTPClient _http;
+WiFiClient _wifiClient;
+const char* SENSOR_MON_URL = "http://rene-thinky/api/sensor_records";
+const int SENSOR_MON_SENSOR_ID = 1;
+const char* SENSOR_MON_SENSOR_PASSWORD = "tulpe";
 
 void setup() {
   Serial.begin(9600);
@@ -32,6 +43,14 @@ void setupDisplay() {
 void setupWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
 }
 
 void prepareDisplay() {
@@ -54,6 +73,11 @@ void loop() {
 
     Serial.print("Humidity (%RH): ");
     Serial.println(humidity);
+
+    if (WiFi.status() == WL_CONNECTED) {
+      send(temperature, SENSOR_MON_TEMPERATURE_UNIT);
+      send(humidity, SENSOR_MON_HUMIDITY_UNIT);
+    }
   }
 
   prepareDisplay();
@@ -62,5 +86,25 @@ void loop() {
   Heltec.display->drawString(0, 20, String("Humidity: " + String(humidity, 1) + " %"));
   Heltec.display->display();
 
-  delay(2000);
+  delay(30000);
+}
+
+
+void send(float value, char* unit) {
+  _http.begin(_wifiClient, SENSOR_MON_URL);
+  String json = "{\"sensorId\": " + String (SENSOR_MON_SENSOR_ID) + "," +
+                     "\"password\": \"" + String(SENSOR_MON_SENSOR_PASSWORD) + "\"," +
+                     "\"value\": " + String (value) + "," +
+                     "\"unit\": \"" + String (unit) + "\"" +
+                   "}";
+  
+  Serial.println(String("[HTTP] POST...") + String(SENSOR_MON_URL) + String(json));
+  
+  _http.addHeader("Content-Type", "application/json");
+  int httpCode = _http.POST(json);
+  if (httpCode > 0) {
+    Serial.printf("[HTTP] POST... code: %d\n", httpCode);
+  } else {
+    Serial.print("error status code: " + httpCode);
+  }
 }
