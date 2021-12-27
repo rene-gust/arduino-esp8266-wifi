@@ -4,6 +4,7 @@
 #include "HTU21D.h" // needs forked library from https://github.com/rene-gust/HTU21D-Sensor-Library
 #include <ESP8266HTTPClient.h>
 #include <WiFiClient.h>
+#include <ArduinoJson.h>
 
 #ifndef STASSID
 #define STASSID "SSID"
@@ -23,14 +24,21 @@ HTU21D sensor;
 float temperature; 
 float humidity;
 
+HTTPClient _httpAuth;
 HTTPClient _http;
 WiFiClient _wifiClient;
-const char* SENSOR_MON_URL = "http://rene-thinky/api/sensor_records";
+char server[] = "192.168.0.103";
+const char* SENSOR_MON_SEND_DATA_URL = "http://192.168.0.103/api/sensor_records";
+const char* SENSOR_MON_AUTHENTICATION_URL = "http://192.168.0.103/authentication_token";
 const int SENSOR_MON_SENSOR_ID = 1;
 const char* SENSOR_MON_SENSOR_PASSWORD = "tulpe";
+const char* SENSOR_MON_SENSOR_USERNAME = "USERNAME";
+const char* SENSOR_MON_SENSOR_USER_PASSWORD = "PASSWORD";
+
+String token;
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
   setupWifi();
   setupDisplay();
 }
@@ -47,6 +55,7 @@ void setupWifi() {
     delay(500);
     Serial.print(".");
   }
+
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
@@ -64,6 +73,7 @@ void setupSensor() {
 
 void loop() {
   setupSensor();
+
   if (sensor.measure()) {
     temperature = sensor.getTemperature();
     humidity = sensor.getHumidity();
@@ -74,14 +84,13 @@ void loop() {
     Serial.print("Humidity (%RH): ");
     Serial.println(humidity);
 
-    if (WiFi.status() == WL_CONNECTED) {
-      send(temperature, SENSOR_MON_TEMPERATURE_UNIT);
-      send(humidity, SENSOR_MON_HUMIDITY_UNIT);
-    }
+    token = getToken();
+
+    postSensorData(token, temperature, SENSOR_MON_TEMPERATURE_UNIT);
+    postSensorData(token, humidity, SENSOR_MON_HUMIDITY_UNIT);
   }
 
   prepareDisplay();
-  Heltec.display->drawString(0, 0, String("IP-Adress: " + WiFi.localIP().toString()));
   Heltec.display->drawString(0, 10, String("Temperature: " + String(temperature, 1) + " °C"));
   Heltec.display->drawString(0, 20, String("Humidity: " + String(humidity, 1) + " %"));
   Heltec.display->display();
@@ -90,21 +99,92 @@ void loop() {
 }
 
 
-void send(float value, char* unit) {
-  _http.begin(_wifiClient, SENSOR_MON_URL);
+void sendJson(String json, String url, String bearerToken = String("")) {
+  if (_wifiClient.connect(server, 80)) {
+    Serial.println("connected to server");
+    _wifiClient.println(String("POST ") + url + String(" HTTP/1.1"));
+    _wifiClient.println(String("Host: ") + String(server));
+
+    if (bearerToken.length() > 0) {
+      _wifiClient.println(String("Authorization: Bearer ") + bearerToken);
+    }
+    
+    _wifiClient.println("Content-type: application/json");
+    _wifiClient.println("Content-length: " + String(json.length()));
+    _wifiClient.println("");
+    _wifiClient.println(json);
+  }
+}
+
+void postSensorData(String token, float value, char* unit) {
   String json = "{\"sensorId\": " + String (SENSOR_MON_SENSOR_ID) + "," +
                      "\"password\": \"" + String(SENSOR_MON_SENSOR_PASSWORD) + "\"," +
                      "\"value\": " + String (value) + "," +
                      "\"unit\": \"" + String (unit) + "\"" +
                    "}";
+
+ sendJson(json, String("/api/sensor_records"), token);
+
+ int timoutTimer = 0;
   
-  Serial.println(String("[HTTP] POST...") + String(SENSOR_MON_URL) + String(json));
-  
-  _http.addHeader("Content-Type", "application/json");
-  int httpCode = _http.POST(json);
-  if (httpCode > 0) {
-    Serial.printf("[HTTP] POST... code: %d\n", httpCode);
-  } else {
-    Serial.print("error status code: " + httpCode);
+  while (_wifiClient.available() == 0) {
+    ++timoutTimer;
+    if (timoutTimer > 20) {
+      Serial.println(">>> Client Timeout !");
+      return ;
+    }
+    delay(100);
   }
+  
+  String line;
+  do {
+    line = readLine();
+  } while (line.indexOf("{") == -1) ;
+  Serial.println(String("sent sensor data: ") + line);
+}
+
+String getToken() {
+    String json = "{\"username\": \"" + String (SENSOR_MON_SENSOR_USERNAME) + "\"," +
+                     "\"password\": \"" + String(SENSOR_MON_SENSOR_USER_PASSWORD) + "\"" +
+                "}";
+
+  sendJson(json, String("/authentication_token"));
+  int timoutTimer = 0;
+  
+  while (_wifiClient.available() == 0) {
+    ++timoutTimer;
+    if (timoutTimer > 20) {
+      Serial.println(">>> Client Timeout !");
+      return "";
+    }
+    delay(100);
+  }
+  
+  String line;
+  do {
+    line = readLine();
+  } while (line.indexOf("{") == -1) ;
+  
+  StaticJsonDocument<1000> doc;
+  DeserializationError error = deserializeJson(doc, line);
+  
+  if (error) {
+    Serial.print("deserializeJson() failed: ");
+    Serial.println(error.f_str());
+    return "";
+  }
+  const char* token = doc["token"];
+  return String(doc["token"]);
+}
+
+String readLine() {
+  String line;
+  char c;
+
+  do {
+    c = _wifiClient.read();
+    line = line + String(c);
+  } while (String(c) != "\n");
+
+  return line;
 }
